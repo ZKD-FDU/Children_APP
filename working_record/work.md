@@ -90,3 +90,158 @@
       - 家长端：查看审批列表 → 同意/拒绝 → 返回活动页查看状态。  
       - 家长端：安全页开关与提示展示是否正常。  
 
+
+##habitime-D工作说明
+
+兴趣页升级、屏幕使用时间功能、导航与返回逻辑修复。
+## 一、兴趣页升级
+### 1.1 功能目标
+
+- 将兴趣选择页从“少量兴趣 + 简单 pill 按钮”升级为**分类 + 图片卡片式网格**，更贴近社交 App 的兴趣标签页体验。
+- 保持与现有用户兴趣存储、首页推荐、个人资料展示的兼容。
+
+### 1.2 数据与结构
+
+- **分类**：共 12 个分类——推荐、爱好、旅行、生活、性格、音乐、运动、美食、宠物、自然、艺术、游戏。
+- **兴趣项**：扩展至 **40+ 个**兴趣标签（带 emoji），按分类组织；每个兴趣项包含：分类 ID、展示文案、分类名称。
+- **选中与存储**：仍使用 `Set<String> _selectedInterests` 存储选中的兴趣文案；完成时调用 `CurrentUser.setInterests(_selectedInterests.toList())`，与 HomePage / ProfilePage / FriendCard 的现有逻辑完全兼容。
+
+### 1.3 页面结构
+
+- **顶部**：保留原有橙色提示卡片和“选择你的兴趣爱好”标题，风格不变。
+- **横向分类导航**：新增水平滚动的分类 Tab（ListView 横向），当前选中分类高亮（紫色背景 + 白字），未选中为白底紫边。
+- **下方内容**：按当前选中的分类过滤兴趣项，以**两列卡片网格**展示：
+  - 每张卡片为圆角矩形，带渐变背景（紫/橙暖色）、轻阴影，底部显示分类名和勾选图标。
+  - 选中态：渐变加深、勾选图标明显，与未选中区分清晰。
+- **底部**：保留“完成”按钮；校验至少选一个兴趣后，写入 `CurrentUser.setInterests` 并 `pushReplacementNamed('/home')`。
+
+### 1.4 涉及文件
+
+- **修改**：`lib/pages/interest_selection_page.dart`  
+  - 新增内部数据结构（`_InterestCategory`、`_InterestItem`）、分类列表与 40+ 兴趣项配置；  
+  - 新增横向分类导航与 `_InterestCard` 卡片组件；  
+  - 完成逻辑与 `CurrentUser.setInterests` 调用未改。
+
+---
+
+## 二、屏幕使用时间功能（Demo）
+
+### 2.1 功能目标
+
+- 在儿童端核心页面顶部展示“健康使用手机”相关的**今日已用时长、剩余时长、每日上限**。
+- 达到上限时，进入一个**应用内限制页**（护眼/休息提示），不做系统级锁屏。
+- 全部为**前端 Demo**：计时可压缩（如每 5 秒视为 1 分钟），便于演示。
+
+### 2.2 状态管理
+
+- **新增**：`lib/utils/screen_time_manager.dart`
+  - `ScreenTimeState`：`used`（已用时长）、`limit`（每日上限）、`limitReached`（是否到上限）。
+  - `ScreenTimeManager`（单例）：
+    - 使用 `Timer.periodic` 做 Demo 计时（例如每 5 秒累加 1 分钟，代码内已注释说明为 Demo）。
+    - 通过 `StreamController<ScreenTimeState>` 广播状态。
+    - 提供 `start()`（幂等启动）、`reset()`、以及“限制页是否已展示”的标记，避免重复弹窗。
+
+### 2.3 展示与限制页
+
+- **Banner 组件**：`lib/widgets/screen_time_banner.dart`
+  - 展示标题“健康使用手机”，以及“今日已用 X 分钟 · 剩余 Y 分钟（每日上限 Z 分钟）”或到达上限时的提示文案。
+  - 订阅 `ScreenTimeManager.stream`，在达到上限且未展示过限制页时，`pushNamed('/screen-time-limit')` 并标记已展示。
+- **限制页**：`lib/pages/screen_time_limit_page.dart`
+  - 路由：`/screen-time-limit`（在 `main.dart` 中注册）。
+  - 内容：图标 + “今天的使用时间差不多啦～”等提示 + “我知道了”按钮，点击后 `Navigator.pop(context)` 返回。
+
+### 2.4 接入位置
+
+- **儿童端四个核心页面顶部**均接入 `ScreenTimeBanner`：
+  - `HomePage`（好友首页）
+  - `ActivityPage`（活动广场，列表第一项为 Banner）
+  - `ChatPage`（聊天页）
+  - `ProfilePage`（我的/他人资料）
+- 家长端页面未接入 Banner，符合“仅儿童端展示”的设定。
+
+### 2.5 涉及文件
+
+- **新增**：`lib/utils/screen_time_manager.dart`、`lib/widgets/screen_time_banner.dart`、`lib/pages/screen_time_limit_page.dart`
+- **修改**：`lib/main.dart`（注册 `/screen-time-limit`）、`lib/pages/home_page.dart`、`lib/pages/activity_page.dart`、`lib/pages/chat_page.dart`、`lib/pages/profile_page.dart`（在页面顶部插入 `ScreenTimeBanner`）
+
+---
+
+## 三、导航与返回逻辑修复
+
+### 3.1 问题与目标
+
+- 一级 Tab 页面之间切换时，避免栈过深或返回行为不一致。
+- 二级页面（如创建活动、绑定码、审批列表、安全页）返回时，优先 `pop`，无法 pop 时应有安全 fallback，避免白屏。
+- 从“卡片/按钮”进入一级页（如从 Profile 的“我的活动”“家长设置”进入）时，与底部 Tab 切换使用同一套逻辑，避免栈混乱。
+
+### 3.2 统一 Tab 切换
+
+- **NavigationHelper 扩展**：`lib/utils/navigation_helper.dart`
+  - 新增 `goToTab(BuildContext context, int index)`：
+    - 内部维护路由数组：`['/home', '/chat', '/activity', '/parent', '/profile']`。
+    - 使用 `Navigator.pushReplacementNamed(context, routes[index])` 切换一级页。
+- **使用处**：所有带底部导航的页面的 `onTap` 均改为 `NavigationHelper.goToTab(context, index)`：
+  - `HomePage`、`ActivityPage`、`ChatPage`、`ProfilePage`（当前用户）、`ParentHomePage`。
+
+### 3.3 pushNamed / pushReplacementNamed 补全与统一
+
+- **一级页之间的跳转**：不再在各处手写 `pushReplacementNamed('/home')` 等，统一为：
+  - 底部导航：`goToTab(context, index)`。
+  - Home 右上角“个人”图标：`goToTab(context, 4)`。
+  - Profile 内“我的活动”“我的好友”“家长设置”：`goToTab(context, 2/0/3)`。
+- **二级页进入**：保持 `Navigator.pushNamed`，用于从一级页或卡片进入详情/子页：
+  - 活动页 → 创建活动：`pushNamed(context, '/create-activity')`。
+  - 好友/Profile → 聊天、他人资料：`pushNamed(context, '/chat'|'/profile', arguments: user)`。
+  - Profile → 绑定码、家长端 → 审批列表/安全页/绑定码：`pushNamed(context, '/binding-code'|'/approval-list'|'/safety', arguments: ...)`。
+- **返回逻辑**：`ChatPage`、他人 `ProfilePage` 继续使用 `NavigationHelper.smartPop`；`safePop` / `smartPop` 在无法 pop 时使用 `pushReplacementNamed(defaultRoute ?? '/home')`，避免白屏。
+
+### 3.4 涉及文件
+
+- **修改**：`lib/utils/navigation_helper.dart`（新增 `goToTab`）、`lib/pages/home_page.dart`、`lib/pages/activity_page.dart`、`lib/pages/chat_page.dart`、`lib/pages/profile_page.dart`、`lib/pages/parent_home_page.dart`（底部导航及部分入口改为 `goToTab`）。
+
+---
+
+## 四、提交与文件清单
+
+### 4.1 提交记录（habitime-D 分支）
+
+1. **feat: enhance interest selection with categorized cards**  
+   - 仅包含：`lib/pages/interest_selection_page.dart`。
+
+2. **feat: add screen time demo and unify tab navigation**  
+   - 包含：  
+     - 新增：`screen_time_manager.dart`、`screen_time_banner.dart`、`screen_time_limit_page.dart`；  
+     - 修改：`main.dart`，以及 Home/Activity/Chat/Profile/ParentHome 的 Banner 接入与导航统一，`navigation_helper.dart` 的 `goToTab`。
+
+### 4.2 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `lib/utils/screen_time_manager.dart` | 屏幕时间状态与 Demo 计时器 |
+| `lib/widgets/screen_time_banner.dart` | 屏幕时间 Banner 组件 |
+| `lib/pages/screen_time_limit_page.dart` | 达到使用上限时的限制提示页 |
+
+### 4.3 修改文件
+
+| 文件 | 主要改动 |
+|------|----------|
+| `lib/main.dart` | 注册路由 `/screen-time-limit` |
+| `lib/pages/interest_selection_page.dart` | 分类 + 40+ 兴趣项 + 横向导航 + 卡片网格 |
+| `lib/pages/home_page.dart` | 顶部接入 ScreenTimeBanner；底部导航及个人入口改为 goToTab |
+| `lib/pages/activity_page.dart` | 列表顶部接入 ScreenTimeBanner；底部导航改为 goToTab |
+| `lib/pages/chat_page.dart` | 顶部接入 ScreenTimeBanner；底部导航改为 goToTab |
+| `lib/pages/profile_page.dart` | 顶部接入 ScreenTimeBanner；底部导航及“我的活动/好友/家长设置”改为 goToTab |
+| `lib/pages/parent_home_page.dart` | 底部导航改为 goToTab |
+| `lib/utils/navigation_helper.dart` | 新增 goToTab，统一一级页切换 |
+
+---
+
+## 五、约束与说明
+
+- **未引入新依赖**：未修改 `pubspec.yaml`，未新增第三方 package。
+- **未接后端**：兴趣数据、屏幕时间、导航均为前端/内存或静态配置，无网络请求与持久化。
+- **UI 风格**：与现有项目保持一致（紫/橙暖色、圆角卡片、Material 组件），未更换整套设计语言。
+- **Demo 假设**：屏幕时间“1 分钟”在代码中压缩为若干秒（如 5 秒），仅用于演示；限制页只做一次引导，不实现系统级锁屏。
+
+
+
