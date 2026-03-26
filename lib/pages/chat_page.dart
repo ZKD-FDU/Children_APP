@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../widgets/chat_bubble.dart';
 import '../utils/navigation_helper.dart';
+import '../utils/sensitive_word_checker.dart';
 import '../widgets/screen_time_banner.dart';
 
-class ChatPage extends StatelessWidget {
+class ChatPage extends StatefulWidget {
   ChatPage({Key? key}) : super(key: key);
 
-  // 假数据：消息列表
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  late final TextEditingController _inputController;
+
+  // 假数据：消息列表（保持原有 Demo 展示逻辑，不在此追加）
   final List<Map<String, dynamic>> _messages = [
     {
       'message': '你好！你想一起踢足球吗？',
@@ -35,6 +43,46 @@ class ChatPage extends StatelessWidget {
       'time': '10:36',
     },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _inputController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    super.dispose();
+  }
+
+  void _handleSend() {
+    final text = _inputController.text;
+    if (text.trim().isEmpty) return;
+
+    final result = SensitiveWordChecker.check(text);
+    if (result.hasRisk) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('安全提醒'),
+          content: Text(result.message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('返回修改'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('发送成功（演示）')),
+    );
+    _inputController.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -113,8 +161,9 @@ class ChatPage extends StatelessWidget {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    child: const TextField(
-                      decoration: InputDecoration(
+                    child: TextField(
+                      controller: _inputController,
+                      decoration: const InputDecoration(
                         hintText: '输入消息...',
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.symmetric(
@@ -133,7 +182,7 @@ class ChatPage extends StatelessWidget {
                   ),
                   child: IconButton(
                     icon: const Icon(Icons.send, color: Colors.white),
-                    onPressed: () {},
+                    onPressed: _handleSend,
                   ),
                 ),
               ],
